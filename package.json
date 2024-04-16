@@ -1,0 +1,17 @@
+{
+  "name": "ventscape-archive",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "puppeteer": "^22.6.4",
+    "sqlite3": "^5.1.7",
+    "tsx": "^4.7.2"
+  }
+}
