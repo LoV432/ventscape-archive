@@ -54,7 +54,7 @@ db.serialize(() => {
   await client.send("Network.enable");
 
   client.on("Network.webSocketFrameReceived", async ({ response }) => {
-    if (response.payloadData.length > 10) {
+    if (response.payloadData.startsWith("42")) {
       const data = response.payloadData;
       let jsonData: Message;
       try {
@@ -70,6 +70,7 @@ db.serialize(() => {
           console.error("Failed to append to error.log", err);
         }
         console.error("Failed to parse JSON", data, err);
+        return;
       }
       totalMessages += 1;
       memDb.serialize(() => {
@@ -132,4 +133,3 @@ async function purgeToDb() {
     purgeInProgress = false;
   }
 }
-
