@@ -11,6 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "puppeteer": "^22.6.4",
+    "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "tsx": "^4.7.2"
   }
