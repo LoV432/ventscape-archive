@@ -1,8 +1,9 @@
+import pg from "pg";
+import { createClient } from "redis";
 import puppeteer from "puppeteer";
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
-
 import fs from "fs";
+import { config } from "dotenv";
+config();
 
 type Message = {
   userId: string;
@@ -12,49 +13,44 @@ type Message = {
   color: string;
 };
 
+const redisClient = createClient({
+  password: process.env.REDIS_PASSWORD,
+  url: process.env.REDIS_URL,
+  username: process.env.REDIS_USERNAME,
+});
+const { Client } = pg;
+const dbClient = new Client({
+  user: process.env.PG_USER,
+  host: process.env.PG_HOST,
+  database: process.env.PG_DATABASE,
+  password: process.env.PG_PASSWORD,
+  port: parseInt(process.env.PG_PORT || "5432"),
+});
+
 async function init() {
-  const db = await open({
-    filename: "database.db",
-    driver: sqlite3.Database,
-  });
-  const memDb = await open({
-    filename: ":memory:",
-    driver: sqlite3.Database,
-  });
-  let totalMessages = 0;
-  let debouncedPruge: NodeJS.Timeout;
-  let purgeInProgress = false;
+  await dbClient.connect();
+  await redisClient.connect();
 
-  await memDb.run(`CREATE TABLE IF NOT EXISTS messages (
-      userId TEXT,
-      id TEXT,
-      messageText TEXT,
-      createdAt INTEGER,
-      color TEXT
-    )`);
+  await dbClient.query(`CREATE TABLE IF NOT EXISTS colors (
+    id SERIAL PRIMARY KEY,
+    color_name VARCHAR(7) NOT NULL UNIQUE
+  )`);
 
-  await db.run("BEGIN;");
-  await db.run(`CREATE TABLE IF NOT EXISTS colors (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    colorName CHAR(7) NOT NULL
-    )`);
+  await dbClient.query(`CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    user_name VARCHAR(50) NOT NULL UNIQUE
+  )`);
 
-  await db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    userName VARCHAR(50) NOT NULL
-    )`);
-
-  await db.run(`CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    messageText TEXT,
-    createdAt INTEGER,
-    userId INTEGER,
-    color INTEGER,
-    CONSTRAINT messages_new_users_FK FOREIGN KEY (userId) REFERENCES users(id),
-    CONSTRAINT messages_new_colors_FK FOREIGN KEY (color) REFERENCES colors(id)
-    )`);
-
-  await db.run(`COMMIT;`);
+  await dbClient.query(`CREATE TABLE IF NOT EXISTS messages (
+    id SERIAL PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE,
+    message_text TEXT,
+    created_at TIMESTAMP,
+    user_id INTEGER,
+    color_id INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (color_id) REFERENCES colors(id)
+  )`);
 
   // Launch the browser and open a new blank page
   const browser = await puppeteer.launch();
@@ -66,6 +62,8 @@ async function init() {
 
   const client = await page.createCDPSession();
   await client.send("Network.enable");
+  let purgeInProgress = false;
+  const dbPurge = setInterval(purgeToDb, 5 * 60 * 1000);
 
   client.on("Network.webSocketFrameReceived", async ({ response }) => {
     if (response.payloadData.startsWith("42")) {
@@ -73,31 +71,17 @@ async function init() {
       let jsonData: Message;
       try {
         jsonData = JSON.parse(data.slice(data.indexOf("{"), -1)) as Message;
+        await redisClient.set(
+          `${jsonData.createdAt}-${jsonData.id}`,
+          JSON.stringify(jsonData)
+        );
       } catch (err) {
-        try {
-          fs.appendFileSync(
-            "error.log",
-            `${new Date()} Failed to parse JSON: ${data} - ${err}\n`,
-            "utf8"
-          );
-        } catch (err) {
-          console.error("Failed to append to error.log", err);
-        }
-        console.error("Failed to parse JSON", data, err);
+        errorToFile(
+          "pg-error.log",
+          `Failed to store data in redis: ${data} ${err}`
+        );
+        console.error("Failed to store data in redis", data, err);
         return;
-      }
-      totalMessages += 1;
-      addToMemDb(jsonData);
-      if (totalMessages % 50 === 0) {
-        if (debouncedPruge) {
-          clearTimeout(debouncedPruge);
-        }
-        await purgeToDb();
-      } else {
-        if (debouncedPruge) {
-          clearTimeout(debouncedPruge);
-        }
-        debouncedPruge = setTimeout(purgeToDb, 1000 * 20);
       }
     }
   });
@@ -111,90 +95,72 @@ async function init() {
         requestId,
         timestamp
       );
-      try {
-        fs.appendFileSync(
-          "error.log",
-          `${new Date()} Network.webSocketFrameError: ${errorMessage} - ${requestId} - ${timestamp}\n`,
-          "utf8"
-        );
-      } catch (err) {
-        console.error("Failed to append to error.log", err);
-      }
+      errorToFile(
+        "pg-error.log",
+        `Network.webSocketFrameError - ${timestamp} - ${requestId} - ${errorMessage}`
+      );
     }
   );
 
   client.on("Network.webSocketClosed", async ({ requestId, timestamp }) => {
     console.error("Network.webSocketClosed", requestId, timestamp);
-    try {
-      fs.appendFileSync(
-        "error.log",
-        `${new Date()} Network.webSocketClosed: ${requestId} - ${timestamp}\n`,
-        "utf8"
-      );
-    } catch (err) {
-      console.error("Failed to append to error.log", err);
-    }
+    errorToFile(
+      "pg-error.log",
+      `Network.webSocketClosed - ${timestamp} - ${requestId}`
+    );
   });
 
   client.on(
     "Network.webSocketCreated",
     async ({ requestId, url, initiator }) => {
       console.error("Network.webSocketCreated", requestId, url, initiator);
-      try {
-        fs.appendFileSync(
-          "error.log",
-          `${new Date()} Network.webSocketCreated: ${requestId} - ${url} - ${initiator}\n`,
-          "utf8"
-        );
-      } catch (err) {
-        console.error("Failed to append to error.log", err);
-      }
+      errorToFile(
+        "pg-error.log",
+        `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
+      );
     }
   );
 
   async function purgeToDb() {
     if (purgeInProgress) {
+      errorToFile("pg-error.log", "Purge already in progress, skipping");
       console.info("Purge already in progress, skipping");
       return;
     }
     purgeInProgress = true;
-    console.info(`Saving to DB... (${totalMessages} messages)`);
+    console.info(`${new Date()} Starting purge to DB...`);
     try {
-      const rows = await memDb.all(`SELECT * FROM messages ORDER BY createdAt`);
-      for (const message of rows as Message[]) {
+      const rows = await redisClient.keys("*");
+      rows.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
+      for (const row of rows) {
+        const message = JSON.parse(
+          (await redisClient.get(row)) as string
+        ) as Message;
         const userId = await getUserId(message.userId);
         if (!userId) {
+          errorToFile(
+            "pg-error.log",
+            `Failed to get userId for ${JSON.stringify(message)}`
+          );
           console.error("Failed to get userId for", message);
-          try {
-            fs.appendFileSync(
-              "error.log",
-              `${new Date()} Failed to get userId for ${JSON.stringify(
-                message
-              )}\n`,
-              "utf8"
-            );
-          } catch (err) {
-            console.error("Failed to append to error.log", err);
-          }
-          deleteFromMemDb(message);
           continue;
         }
         const color = await getColorId(message.color);
-        await addToDb(message.messageText, message.createdAt, userId, color);
-        deleteFromMemDb(message);
-      }
-      totalMessages = 0;
-    } catch (err) {
-      try {
-        fs.appendFileSync(
-          "error.log",
-          `${new Date()} Purge failed: ${err}\n`,
-          "utf8"
+        const addToDbResult = await addToDb(
+          message.messageText,
+          message.createdAt,
+          userId,
+          color,
+          message.id
         );
-      } catch (err) {
-        console.error("Failed to append to error.log", err);
+        if (addToDbResult) {
+          await redisClient.del(row);
+        }
       }
-      console.error("Purge failed", err);
+      console.info(`${new Date()} Purged to DB... (${rows.length} messages)`);
+    } catch (err) {
+      errorToFile("pg-error.log", `Failed to purge to db: ${err}`);
+      console.error(err);
     } finally {
       purgeInProgress = false;
     }
@@ -204,62 +170,46 @@ async function init() {
     let userId: number | undefined;
     try {
       userId = (
-        await db.get(`SELECT id FROM users WHERE userName = ?`, [messageUserId])
-      )?.id as number | undefined;
+        await dbClient.query(`SELECT id FROM users WHERE user_name = $1`, [
+          messageUserId,
+        ])
+      ).rows[0]?.id as number | undefined;
       if (!userId) {
-        db.run(`BEGIN;`);
         userId = (
-          await db.run(`INSERT INTO users(userName) VALUES (?)`, [
-            messageUserId,
-          ])
-        ).lastID as number;
-        db.run(`COMMIT;`);
+          await dbClient.query(
+            `INSERT INTO users(user_name) VALUES ($1) RETURNING id`,
+            [messageUserId]
+          )
+        ).rows[0].id as number;
       }
       return userId;
     } catch (err) {
-      try {
-        fs.appendFileSync(
-          "error.log",
-          `${new Date()} Failed to get userId: ${err}\n`,
-          "utf8"
-        );
-      } catch (err) {
-        console.error("Failed to append to error.log", err);
-      }
+      errorToFile("pg-error.log", `Failed to get userId: ${err}`);
       console.error("Failed to get userId", err);
       return null;
     }
   }
 
   async function getColorId(messageColor: string | null) {
-    if (!messageColor) return Promise.resolve(null);
+    if (!messageColor) return null;
     let colorId: number | undefined;
     try {
       colorId = (
-        await db.get(`SELECT id FROM colors WHERE colorName = ?`, [
+        await dbClient.query(`SELECT id FROM colors WHERE color_name = $1`, [
           messageColor,
         ])
-      )?.id as number | undefined;
+      ).rows[0]?.id as number | undefined;
       if (!colorId) {
-        db.run(`BEGIN;`);
         colorId = (
-          await db.run(`INSERT INTO colors(colorName) VALUES (?)`, [
-            messageColor,
-          ])
-        ).lastID as number;
-        db.run(`COMMIT;`);
+          await dbClient.query(
+            `INSERT INTO colors(color_name) VALUES ($1) RETURNING id`,
+            [messageColor]
+          )
+        ).rows[0].id as number;
       }
       return colorId;
     } catch (err) {
-      try {
-        fs.appendFileSync(
-          "error.log",
-          `${new Date()} Failed to get colorId: ${err}\n`,
-          "utf8"
-        );
-      } catch (err) {
-        console.error("Failed to append to error.log", err);
-      }
+      errorToFile("pg-error.log", `Failed to get colorId: ${err}`);
       console.error("Failed to get colorId", err);
       return null;
     }
@@ -269,29 +219,38 @@ async function init() {
     messageText: string,
     createdAt: number,
     userId: number,
-    color: number | null
+    colorId: number | null,
+    uuid: string
   ) {
-    await db.run(`BEGIN;`);
-    await db.run(
-      `INSERT INTO messages(messageText, createdAt, userId, color) VALUES (?, ?, ?, ?)`,
-      [messageText, createdAt, userId, color]
-    );
-    await db.run(`COMMIT;`);
-  }
-
-  function addToMemDb(message: Message) {
-    memDb.run(`INSERT INTO messages VALUES (?, ?, ?, ?, ?)`, [
-      message.userId,
-      message.id,
-      message.messageText,
-      message.createdAt,
-      message.color,
-    ]);
-  }
-
-  function deleteFromMemDb(message: Message) {
-    memDb.run(`DELETE FROM messages WHERE id = ?`, [message.id]);
+    try {
+      await dbClient.query(
+        `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid) VALUES ($1, $2, $3, $4, $5)`,
+        [
+          messageText,
+          `${new Date(createdAt).toISOString()}`,
+          userId,
+          colorId,
+          uuid,
+        ]
+      );
+      return true;
+    } catch (err) {
+      errorToFile(
+        "pg-error.log",
+        `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId}`
+      );
+      console.error("Failed to add to db", err);
+      return false;
+    }
   }
 }
 
 init();
+
+function errorToFile(file: string, message: string) {
+  try {
+    fs.appendFileSync(file, `${new Date()} ${message}\n`, "utf8");
+  } catch (err) {
+    console.error("Failed to append to error.log", err);
+  }
+}
