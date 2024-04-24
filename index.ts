@@ -1,9 +1,9 @@
 import pg from "pg";
 import { createClient } from "redis";
 import puppeteer from "puppeteer";
-import fs from "fs";
 import { config } from "dotenv";
 import { refetch } from "./refetch";
+import { errorToFile, getUserId, addToDb, getColorId } from "./utils";
 config();
 
 type Message = {
@@ -14,21 +14,21 @@ type Message = {
   color: string;
 };
 
-const redisClient = createClient({
-  password: process.env.REDIS_PASSWORD,
-  url: process.env.REDIS_URL,
-  username: process.env.REDIS_USERNAME,
-});
-const { Client } = pg;
-const dbClient = new Client({
-  user: process.env.PG_USER,
-  host: process.env.PG_HOST,
-  database: process.env.PG_DATABASE,
-  password: process.env.PG_PASSWORD,
-  port: parseInt(process.env.PG_PORT || "5432"),
-});
-
 async function init() {
+  const errorFile = "pg-error.log";
+  const redisClient = createClient({
+    password: process.env.REDIS_PASSWORD,
+    url: process.env.REDIS_URL,
+    username: process.env.REDIS_USERNAME,
+  });
+  const { Client } = pg;
+  const dbClient = new Client({
+    user: process.env.PG_USER,
+    host: process.env.PG_HOST,
+    database: process.env.PG_DATABASE,
+    password: process.env.PG_PASSWORD,
+    port: parseInt(process.env.PG_PORT || "5432"),
+  });
   await dbClient.connect();
   await redisClient.connect();
 
@@ -74,10 +74,7 @@ async function init() {
         jsonData = JSON.parse(data.slice(data.indexOf("{"), -1)) as Message;
         await redisClient.set(jsonData.id, JSON.stringify(jsonData));
       } catch (err) {
-        errorToFile(
-          "pg-error.log",
-          `Failed to store data in redis: ${data} ${err}`
-        );
+        errorToFile(errorFile, `Failed to store data in redis: ${data} ${err}`);
         console.error("Failed to store data in redis", data, err);
         return;
       }
@@ -94,7 +91,7 @@ async function init() {
         timestamp
       );
       errorToFile(
-        "pg-error.log",
+        errorFile,
         `Network.webSocketFrameError - ${timestamp} - ${requestId} - ${errorMessage}`
       );
     }
@@ -103,7 +100,7 @@ async function init() {
   client.on("Network.webSocketClosed", async ({ requestId, timestamp }) => {
     console.error("Network.webSocketClosed", requestId, timestamp);
     errorToFile(
-      "pg-error.log",
+      errorFile,
       `Network.webSocketClosed - ${timestamp} - ${requestId}`
     );
   });
@@ -113,25 +110,25 @@ async function init() {
     async ({ requestId, url, initiator }) => {
       console.error("Network.webSocketCreated", requestId, url, initiator);
       errorToFile(
-        "pg-error.log",
+        errorFile,
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
       );
       try {
         console.info(`${new Date()} Starting refetch...`);
-        errorToFile("pg-error.log", `Starting refetch...`);
+        errorToFile(errorFile, `Starting refetch...`);
         const { messages } = await refetch(browser);
         console.info(
           `${new Date()} Finished refetch, ${messages.length} messages`
         );
         errorToFile(
-          "pg-error.log",
+          errorFile,
           `Finished refetch - ${JSON.stringify(messages)}`
         );
         for (const message of messages) {
           await redisClient.set(message.id, JSON.stringify(message));
         }
       } catch (err) {
-        errorToFile("pg-error.log", `Failed to refetch: ${err}`);
+        errorToFile(errorFile, `Failed to refetch: ${err}`);
         console.error("Failed to refetch", err);
       }
     }
@@ -139,7 +136,7 @@ async function init() {
 
   async function purgeToDb() {
     if (purgeInProgress) {
-      errorToFile("pg-error.log", "Purge already in progress, skipping");
+      errorToFile(errorFile, "Purge already in progress, skipping");
       console.info("Purge already in progress, skipping");
       return;
     }
@@ -151,22 +148,24 @@ async function init() {
         const message = JSON.parse(
           (await redisClient.get(row)) as string
         ) as Message;
-        const userId = await getUserId(message.userId);
+        const userId = await getUserId(message.userId, dbClient, errorFile);
         if (!userId) {
           errorToFile(
-            "pg-error.log",
+            errorFile,
             `Failed to get userId for ${JSON.stringify(message)}`
           );
           console.error("Failed to get userId for", message);
           continue;
         }
-        const color = await getColorId(message.color);
+        const color = await getColorId(message.color, dbClient, errorFile);
         const addToDbResult = await addToDb(
           message.messageText,
           message.createdAt,
           userId,
           color,
-          message.id
+          message.id,
+          dbClient,
+          errorFile
         );
         if (addToDbResult) {
           await redisClient.del(row);
@@ -174,102 +173,12 @@ async function init() {
       }
       console.info(`${new Date()} Purged to DB... (${rows.length} messages)`);
     } catch (err) {
-      errorToFile("pg-error.log", `Failed to purge to db: ${err}`);
+      errorToFile(errorFile, `Failed to purge to db: ${err}`);
       console.error(err);
     } finally {
       purgeInProgress = false;
     }
   }
-
-  async function getUserId(messageUserId: string) {
-    let userId: number | undefined;
-    try {
-      userId = (
-        await dbClient.query(`SELECT id FROM users WHERE user_name = $1`, [
-          messageUserId,
-        ])
-      ).rows[0]?.id as number | undefined;
-      if (!userId) {
-        userId = (
-          await dbClient.query(
-            `INSERT INTO users(user_name) VALUES ($1) RETURNING id`,
-            [messageUserId]
-          )
-        ).rows[0].id as number;
-      }
-      return userId;
-    } catch (err) {
-      errorToFile("pg-error.log", `Failed to get userId: ${err}`);
-      console.error("Failed to get userId", err);
-      return null;
-    }
-  }
-
-  async function getColorId(messageColor: string | null) {
-    if (!messageColor) return null;
-    let colorId: number | undefined;
-    try {
-      colorId = (
-        await dbClient.query(`SELECT id FROM colors WHERE color_name = $1`, [
-          messageColor,
-        ])
-      ).rows[0]?.id as number | undefined;
-      if (!colorId) {
-        colorId = (
-          await dbClient.query(
-            `INSERT INTO colors(color_name) VALUES ($1) RETURNING id`,
-            [messageColor]
-          )
-        ).rows[0].id as number;
-      }
-      return colorId;
-    } catch (err) {
-      errorToFile("pg-error.log", `Failed to get colorId: ${err}`);
-      console.error("Failed to get colorId", err);
-      return null;
-    }
-  }
-
-  async function addToDb(
-    messageText: string,
-    createdAt: number,
-    userId: number,
-    colorId: number | null,
-    uuid: string
-  ) {
-    try {
-      await dbClient.query(
-        `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid) VALUES ($1, $2, $3, $4, $5)`,
-        [
-          messageText,
-          `${new Date(createdAt).toISOString()}`,
-          userId,
-          colorId,
-          uuid,
-        ]
-      );
-      return true;
-    } catch (err) {
-      errorToFile(
-        "pg-error.log",
-        `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId}`
-      );
-      console.error("Failed to add to db", err);
-      if (err.code === "23505") {
-        // Duplicate entry
-        return true;
-      }
-      return false;
-    }
-  }
 }
 
 init();
-
-function errorToFile(file: string, message: string) {
-  try {
-    fs.appendFileSync(file, `${new Date()} ${message}\n`, "utf8");
-  } catch (err) {
-    console.error("Failed to append to error.log", err);
-  }
-}
