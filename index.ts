@@ -3,6 +3,7 @@ import { createClient } from "redis";
 import puppeteer from "puppeteer";
 import fs from "fs";
 import { config } from "dotenv";
+import { refetch } from "./refetch";
 config();
 
 type Message = {
@@ -71,10 +72,7 @@ async function init() {
       let jsonData: Message;
       try {
         jsonData = JSON.parse(data.slice(data.indexOf("{"), -1)) as Message;
-        await redisClient.set(
-          `${jsonData.createdAt}-${jsonData.id}`,
-          JSON.stringify(jsonData)
-        );
+        await redisClient.set(jsonData.id, JSON.stringify(jsonData));
       } catch (err) {
         errorToFile(
           "pg-error.log",
@@ -118,6 +116,24 @@ async function init() {
         "pg-error.log",
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
       );
+      try {
+        console.info(`${new Date()} Starting refetch...`);
+        errorToFile("pg-error.log", `Starting refetch...`);
+        const { messages } = await refetch(browser);
+        console.info(
+          `${new Date()} Finished refetch, ${messages.length} messages`
+        );
+        errorToFile(
+          "pg-error.log",
+          `Finished refetch - ${JSON.stringify(messages)}`
+        );
+        for (const message of messages) {
+          await redisClient.set(message.id, JSON.stringify(message));
+        }
+      } catch (err) {
+        errorToFile("pg-error.log", `Failed to refetch: ${err}`);
+        console.error("Failed to refetch", err);
+      }
     }
   );
 
@@ -131,7 +147,6 @@ async function init() {
     console.info(`${new Date()} Starting purge to DB...`);
     try {
       const rows = await redisClient.keys("*");
-      rows.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
       for (const row of rows) {
         const message = JSON.parse(
           (await redisClient.get(row)) as string
@@ -240,6 +255,10 @@ async function init() {
         `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId}`
       );
       console.error("Failed to add to db", err);
+      if (err.code === "23505") {
+        // Duplicate entry
+        return true;
+      }
       return false;
     }
   }
