@@ -1,19 +1,29 @@
-import sqlite3 from "sqlite3";
+import pg from "pg";
 import { stopWords } from "./stop-words.ts";
+import { config } from "dotenv";
+config();
 
 type Message = {
-  messageText: string;
+  message_text: string;
 };
 
-const db = new sqlite3.Database("database.db");
+(async () => {
+  const { Client } = pg;
+  const dbClient = new Client({
+    user: process.env.PG_USER,
+    host: process.env.PG_HOST,
+    database: process.env.PG_DATABASE,
+    password: process.env.PG_PASSWORD,
+    port: parseInt(process.env.PG_PORT || "5432"),
+  });
+  await dbClient.connect();
+  let allWordsList: string[] = [];
+  let allWordsCount: Record<string, number> = {};
 
-let allWordsList: string[] = [];
-let allWordsCount: Record<string, number> = {};
-
-db.all(`SELECT messageText FROM messages`, (err, rows: Message[]) => {
-  rows.forEach((message) => {
+  const allMessages = await dbClient.query(`SELECT message_text FROM messages`);
+  allMessages.rows.forEach((message: Message) => {
     try {
-      allWordsList.push(...message.messageText.split(" "));
+      allWordsList.push(...message.message_text.split(" "));
     } catch {}
   });
   allWordsList.forEach((word: string) => {
@@ -25,4 +35,4 @@ db.all(`SELECT messageText FROM messages`, (err, rows: Message[]) => {
     (a, b) => b[1] - a[1]
   );
   console.log(allWordsCountArray);
-});
+})();
