@@ -64,6 +64,7 @@ async function init() {
   const client = await page.createCDPSession();
   await client.send("Network.enable");
   let purgeInProgress = false;
+  let refetchTimeout: NodeJS.Timeout;
   const dbPurge = setInterval(purgeToDb, 5 * 60 * 1000);
 
   client.on("Network.webSocketFrameReceived", async ({ response }) => {
@@ -113,24 +114,27 @@ async function init() {
         errorFile,
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
       );
-      try {
-        console.info(`${new Date()} Starting refetch...`);
-        errorToFile(errorFile, `Starting refetch...`);
-        const { messages } = await refetch(browser);
-        console.info(
-          `${new Date()} Finished refetch, ${messages.length} messages`
-        );
-        errorToFile(
-          errorFile,
-          `Finished refetch - ${JSON.stringify(messages)}`
-        );
-        for (const message of messages) {
-          await redisClient.set(message.id, JSON.stringify(message));
+      refetchTimeout && clearTimeout(refetchTimeout);
+      refetchTimeout = setTimeout(async () => {
+        try {
+          console.info(`${new Date()} Starting refetch...`);
+          errorToFile(errorFile, `Starting refetch...`);
+          const { messages } = await refetch(browser);
+          console.info(
+            `${new Date()} Finished refetch, ${messages.length} messages`
+          );
+          errorToFile(
+            errorFile,
+            `Finished refetch - ${JSON.stringify(messages)}`
+          );
+          for (const message of messages) {
+            await redisClient.set(message.id, JSON.stringify(message));
+          }
+        } catch (err) {
+          errorToFile(errorFile, `Failed to refetch: ${err}`);
+          console.error("Failed to refetch", err);
         }
-      } catch (err) {
-        errorToFile(errorFile, `Failed to refetch: ${err}`);
-        console.error("Failed to refetch", err);
-      }
+      }, 10000);
     }
   );
 
