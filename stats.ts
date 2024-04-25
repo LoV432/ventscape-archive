@@ -35,4 +35,5 @@ type Message = {
     (a, b) => b[1] - a[1]
   );
   console.log(allWordsCountArray);
+  dbClient.end();
 })();
