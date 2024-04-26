@@ -1,8 +1,6 @@
-import { Browser } from "puppeteer";
+import { Page } from "puppeteer";
 
-export async function refetch(browser: Browser) {
-  const page = await browser.newPage();
-
+export async function refetch(page: Page) {
   // Navigate the page to a URL
   await page.goto("https://ventscape.life/");
   await page.content();
@@ -29,14 +27,12 @@ export async function refetch(browser: Browser) {
           token: data[0].value.stsTokenManager.accessToken,
         };
       } catch (errorMessage) {
-        page.close();
         throw new Error("Failed to get token" + errorMessage);
       }
     }
   );
   const { token } = indexedDB;
   if (!token || token === "") {
-    page.close();
     throw new Error("Failed to get token");
   }
   await page.setExtraHTTPHeaders({
@@ -49,7 +45,6 @@ export async function refetch(browser: Browser) {
     // @ts-ignore
     return JSON.parse(document.querySelector("body").innerText);
   });
-  page.close();
   return oldMessages as {
     messages: {
       id: string;

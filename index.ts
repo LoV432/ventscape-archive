@@ -115,26 +115,7 @@ async function init() {
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
       );
       refetchTimeout && clearTimeout(refetchTimeout);
-      refetchTimeout = setTimeout(async () => {
-        try {
-          console.info(`${new Date()} Starting refetch...`);
-          errorToFile(errorFile, `Starting refetch...`);
-          const { messages } = await refetch(browser);
-          console.info(
-            `${new Date()} Finished refetch, ${messages.length} messages`
-          );
-          errorToFile(
-            errorFile,
-            `Finished refetch - ${JSON.stringify(messages)}`
-          );
-          for (const message of messages) {
-            await redisClient.set(message.id, JSON.stringify(message));
-          }
-        } catch (err) {
-          errorToFile(errorFile, `Failed to refetch: ${err}`);
-          console.error("Failed to refetch", err);
-        }
-      }, 10000);
+      refetchTimeout = setTimeout(handleRefetch, 20000);
     }
   );
 
@@ -181,6 +162,30 @@ async function init() {
       console.error(err);
     } finally {
       purgeInProgress = false;
+    }
+  }
+
+  async function handleRefetch() {
+    const refetchPage = await browser.newPage();
+    try {
+      console.info(`${new Date()} Starting refetch...`);
+      errorToFile(errorFile, `Starting refetch...`);
+      const { messages } = await refetch(refetchPage);
+      console.info(
+        `${new Date()} Finished refetch, ${messages.length} messages`
+      );
+      errorToFile(errorFile, `Finished refetch - ${JSON.stringify(messages)}`);
+      for (const message of messages) {
+        await redisClient.set(message.id, JSON.stringify(message));
+      }
+    } catch (err) {
+      errorToFile(errorFile, `Failed to refetch: ${err}`);
+      console.error("Failed to refetch", err);
+      // This could create an infinite loop
+      refetchTimeout && clearTimeout(refetchTimeout);
+      refetchTimeout = setTimeout(handleRefetch, 20000);
+    } finally {
+      await refetchPage.close();
     }
   }
 }
