@@ -15,7 +15,7 @@ type Message = {
 };
 
 async function init() {
-  const errorFile = "pg-error.log";
+  const errorFile = "logs/pg-error.log";
   const redisClient = createClient({
     password: process.env.REDIS_PASSWORD,
     url: process.env.REDIS_URL,
@@ -59,6 +59,7 @@ async function init() {
 
   // Navigate the page to a URL
   await page.goto("https://ventscape.life/");
+  errorToFile(errorFile, "Script started");
   console.log(await page.title());
 
   const client = await page.createCDPSession();
