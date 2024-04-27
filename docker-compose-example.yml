@@ -1,0 +1,18 @@
+services:
+  ventscapearchive:
+    cap_add:
+      - SYS_ADMIN
+    image: ventscapearchive:latest
+    volumes:
+      - ./logs/:/home/node/app/logs
+    environment:
+      - "PG_USER="
+      - "PG_HOST="
+      - "PG_HOST_REPLICA="
+      - "PG_DATABASE="
+      - "PG_PASSWORD="
+      - "PG_PORT="
+      - "REDIS_PASSWORD="
+      - "REDIS_URL="
+      - "REDIS_USERNAME="
+    restart: unless-stopped

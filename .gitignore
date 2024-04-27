@@ -2,3 +2,5 @@
 /node_modules
 *.log
 .env*
+*.7z
+docker-compose.yml
