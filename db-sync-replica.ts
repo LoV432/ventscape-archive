@@ -28,76 +28,122 @@ const dbReplicaClient = new Client({
 });
 
 async function init() {
-  const errorFile = "db-sync-replica-error.log";
+  const errorFile = "logs/db-sync-replica-error.log";
   await dbClient.connect();
   await dbReplicaClient.connect();
 
-  const lastMessageInMainDb = await dbClient.query(
-    `SELECT created_at FROM messages ORDER BY created_at DESC LIMIT 1`
-  );
-  let fiveMinutesBforeLastMessage: Date | undefined;
-  if (lastMessageInMainDb.rows.length > 0) {
-    const lastMessage = lastMessageInMainDb.rows[0];
-    if (lastMessage && lastMessage.created_at) {
-      fiveMinutesBforeLastMessage = lastMessageInMainDb.rows[0]
-        .created_at as Date;
-      fiveMinutesBforeLastMessage.setMinutes(
-        fiveMinutesBforeLastMessage.getMinutes() -
-          fiveMinutesBforeLastMessage.getTimezoneOffset()
-      );
+  const now = new Date();
 
-      fiveMinutesBforeLastMessage = new Date(
-        fiveMinutesBforeLastMessage.getTime() - 5 * 60000
-      );
-    }
-  }
-  if (!fiveMinutesBforeLastMessage) {
-    console.error("Failed to retrieve last message from database");
-    process.exit(1);
-  }
-  console.log(fiveMinutesBforeLastMessage);
-  console.log(`Last message: ${fiveMinutesBforeLastMessage.toUTCString()}`);
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  console.log(oneDayAgo, oneHourAgo);
 
-  const messagesAfterTime = await dbReplicaClient.query(
-    `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE created_at > $1 ORDER BY created_at ASC`,
-    [fiveMinutesBforeLastMessage.toISOString()]
+  const messagesInReplica = await dbReplicaClient.query(
+    `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
+    [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
   );
-  const lastMessageInReplica = await dbReplicaClient.query(
-    `SELECT * FROM messages ORDER BY created_at DESC LIMIT 1`
-  );
-  console.log(lastMessageInReplica.rows);
+  console.log(messagesInReplica.rows[messagesInReplica.rows.length - 1]);
 
-  console.log(
-    `Found ${
-      messagesAfterTime.rows.length
-    } messages after ${fiveMinutesBforeLastMessage.toUTCString()}`
+  const messageInMain = await dbClient.query(
+    `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
+    [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
   );
-  for (const message of messagesAfterTime.rows as Message[]) {
-    console.log(message);
-    const userId = await getUserId(message.user_name, dbClient, errorFile);
-    if (!userId) {
-      errorToFile(errorFile, `Failed to get userId for ${message}`);
-      console.error("Failed to get userId for", message);
-      continue;
-    }
-    const color = await getColorId(message.color_name, dbClient, errorFile);
-    message.created_at.setMinutes(
-      message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
+  console.log(messageInMain.rows[messageInMain.rows.length - 1]);
+
+  const messagesInReplicaIds = messagesInReplica.rows.map(
+    (message) => message.id
+  );
+  const messagesInMainIds = messageInMain.rows.map((message) => message.id);
+
+  const missingInReplica = messagesInMainIds.filter(
+    (id) => !messagesInReplicaIds.includes(id)
+  );
+
+  const missingMessagesInMain = messagesInReplicaIds.filter(
+    (id) => !messagesInMainIds.includes(id)
+  );
+
+  console.log(`Found ${missingMessagesInMain.length} missing messages in main`);
+  console.log(missingMessagesInMain);
+  console.log(`Found ${missingInReplica.length} missing messages in replica`);
+  console.log(missingInReplica);
+
+  if (missingMessagesInMain.length > 0) {
+    console.log("Adding missing messages in main");
+    const messagesToAddInMain = await dbReplicaClient.query(
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
+      [`{${missingMessagesInMain.join(",")}}`]
     );
-    const addToDbResult = await addToDb(
-      message.message_text,
-      message.created_at,
-      userId,
-      color,
-      message.id,
-      dbClient,
-      errorFile
-    );
-    if (!addToDbResult) {
-      errorToFile(errorFile, `Failed to add ${message}`);
-      console.error("Failed to add", message);
+
+    for (const message of messagesToAddInMain.rows as Message[]) {
+      console.log(message);
+      const userId = await getUserId(message.user_name, dbClient, errorFile);
+      if (!userId) {
+        errorToFile(errorFile, `Failed to get userId for ${message}`);
+        console.error("Failed to get userId for", message);
+        continue;
+      }
+      const color = await getColorId(message.color_name, dbClient, errorFile);
+      message.created_at.setMinutes(
+        message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
+      );
+      const addToDbResult = await addToDb(
+        message.message_text,
+        message.created_at,
+        userId,
+        color,
+        message.id,
+        dbClient,
+        errorFile
+      );
+      if (!addToDbResult) {
+        errorToFile(errorFile, `Failed to add ${message}`);
+        console.error("Failed to add", message);
+      }
     }
   }
+
+  // if (missingInReplica.length > 0) {
+  //   console.log("Adding missing messages in replica");
+  //   const messagesToAddInReplica = await dbClient.query(
+  //     `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
+  //     [`{${missingInReplica.join(",")}}`]
+  //   );
+  //   for (const message of messagesToAddInReplica.rows as Message[]) {
+  //     console.log(message);
+  //     const userId = await getUserId(
+  //       message.user_name,
+  //       dbReplicaClient,
+  //       errorFile
+  //     );
+  //     if (!userId) {
+  //       errorToFile(errorFile, `Failed to get userId for ${message}`);
+  //       console.error("Failed to get userId for", message);
+  //       continue;
+  //     }
+  //     const color = await getColorId(
+  //       message.color_name,
+  //       dbReplicaClient,
+  //       errorFile
+  //     );
+  //     message.created_at.setMinutes(
+  //       message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
+  //     );
+  //     const addToDbResult = await addToDb(
+  //       message.message_text,
+  //       message.created_at,
+  //       userId,
+  //       color,
+  //       message.id,
+  //       dbReplicaClient,
+  //       errorFile
+  //     );
+  //     if (!addToDbResult) {
+  //       errorToFile(errorFile, `Failed to add ${message}`);
+  //       console.error("Failed to add", message);
+  //     }
+  //   }
+  // }
 
   await dbClient.end();
   await dbReplicaClient.end();
