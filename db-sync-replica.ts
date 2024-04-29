@@ -1,6 +1,7 @@
 import pg from "pg";
 import { config } from "dotenv";
 import { errorToFile, getUserId, addToDb, getColorId } from "./utils";
+const [syncDb, syncReplica] = process.argv.slice(2);
 config();
 
 type Message = {
@@ -68,7 +69,7 @@ async function init() {
   console.log(`Found ${missingInReplica.length} missing messages in replica`);
   console.log(missingInReplica);
 
-  if (missingMessagesInMain.length > 0) {
+  if (missingMessagesInMain.length > 0 && syncDb === "true") {
     console.log("Adding missing messages in main");
     const messagesToAddInMain = await dbReplicaClient.query(
       `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
@@ -103,47 +104,47 @@ async function init() {
     }
   }
 
-  // if (missingInReplica.length > 0) {
-  //   console.log("Adding missing messages in replica");
-  //   const messagesToAddInReplica = await dbClient.query(
-  //     `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
-  //     [`{${missingInReplica.join(",")}}`]
-  //   );
-  //   for (const message of messagesToAddInReplica.rows as Message[]) {
-  //     console.log(message);
-  //     const userId = await getUserId(
-  //       message.user_name,
-  //       dbReplicaClient,
-  //       errorFile
-  //     );
-  //     if (!userId) {
-  //       errorToFile(errorFile, `Failed to get userId for ${message}`);
-  //       console.error("Failed to get userId for", message);
-  //       continue;
-  //     }
-  //     const color = await getColorId(
-  //       message.color_name,
-  //       dbReplicaClient,
-  //       errorFile
-  //     );
-  //     message.created_at.setMinutes(
-  //       message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
-  //     );
-  //     const addToDbResult = await addToDb(
-  //       message.message_text,
-  //       message.created_at,
-  //       userId,
-  //       color,
-  //       message.id,
-  //       dbReplicaClient,
-  //       errorFile
-  //     );
-  //     if (!addToDbResult) {
-  //       errorToFile(errorFile, `Failed to add ${message}`);
-  //       console.error("Failed to add", message);
-  //     }
-  //   }
-  // }
+  if (missingInReplica.length > 0 && syncReplica === "true") {
+    console.log("Adding missing messages in replica");
+    const messagesToAddInReplica = await dbClient.query(
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
+      [`{${missingInReplica.join(",")}}`]
+    );
+    for (const message of messagesToAddInReplica.rows as Message[]) {
+      console.log(message);
+      const userId = await getUserId(
+        message.user_name,
+        dbReplicaClient,
+        errorFile
+      );
+      if (!userId) {
+        errorToFile(errorFile, `Failed to get userId for ${message}`);
+        console.error("Failed to get userId for", message);
+        continue;
+      }
+      const color = await getColorId(
+        message.color_name,
+        dbReplicaClient,
+        errorFile
+      );
+      message.created_at.setMinutes(
+        message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
+      );
+      const addToDbResult = await addToDb(
+        message.message_text,
+        message.created_at,
+        userId,
+        color,
+        message.id,
+        dbReplicaClient,
+        errorFile
+      );
+      if (!addToDbResult) {
+        errorToFile(errorFile, `Failed to add ${message}`);
+        console.error("Failed to add", message);
+      }
+    }
+  }
 
   await dbClient.end();
   await dbReplicaClient.end();
