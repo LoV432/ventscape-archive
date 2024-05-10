@@ -85,9 +85,6 @@ async function init() {
         continue;
       }
       const color = await getColorId(message.color_name, dbClient, errorFile);
-      message.created_at.setMinutes(
-        message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
-      );
       const addToDbResult = await addToDb(
         message.message_text,
         message.created_at,

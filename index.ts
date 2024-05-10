@@ -46,7 +46,7 @@ async function init() {
     id SERIAL PRIMARY KEY,
     uuid UUID NOT NULL UNIQUE,
     message_text TEXT,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPZ,
     user_id INTEGER,
     color_id INTEGER,
     FOREIGN KEY (user_id) REFERENCES users(id),
