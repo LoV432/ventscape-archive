@@ -39,29 +39,30 @@ async function init() {
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   console.log(oneDayAgo, oneHourAgo);
 
-  const messagesInReplica = await dbReplicaClient.query(
-    `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
-    [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
-  );
-  console.log(messagesInReplica.rows[messagesInReplica.rows.length - 1]);
+  const messagesInReplica = (
+    await dbReplicaClient.query(
+      `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
+      [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
+    )
+  ).rows.map(({ id }) => id as string);
+  console.log(messagesInReplica[messagesInReplica.length - 1]);
 
-  const messageInMain = await dbClient.query(
-    `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
-    [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
-  );
-  console.log(messageInMain.rows[messageInMain.rows.length - 1]);
+  const messageInMain = (
+    await dbClient.query(
+      `SELECT uuid as id FROM messages WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at ASC`,
+      [oneDayAgo.toUTCString(), oneHourAgo.toUTCString()]
+    )
+  ).rows.map(({ id }) => id as string);
+  console.log(messageInMain[messageInMain.length - 1]);
 
-  const messagesInReplicaIds = messagesInReplica.rows.map(
-    (message) => message.id
-  );
-  const messagesInMainIds = messageInMain.rows.map((message) => message.id);
+  const messagesInReplicaSet = new Set(messagesInReplica);
+  const messagesInMainSet = new Set(messageInMain);
 
-  const missingInReplica = messagesInMainIds.filter(
-    (id) => !messagesInReplicaIds.includes(id)
+  const missingInReplica = messageInMain.filter(
+    (id) => !messagesInReplicaSet.has(id)
   );
-
-  const missingMessagesInMain = messagesInReplicaIds.filter(
-    (id) => !messagesInMainIds.includes(id)
+  const missingMessagesInMain = messagesInReplica.filter(
+    (id) => !messagesInMainSet.has(id)
   );
 
   console.log(`Found ${missingMessagesInMain.length} missing messages in main`);
