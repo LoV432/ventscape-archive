@@ -124,9 +124,6 @@ async function init() {
         dbReplicaClient,
         errorFile
       );
-      message.created_at.setMinutes(
-        message.created_at.getMinutes() - message.created_at.getTimezoneOffset()
-      );
       const addToDbResult = await addToDb(
         message.message_text,
         message.created_at,
