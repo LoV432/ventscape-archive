@@ -34,8 +34,8 @@ async function init() {
   await dbReplicaClient.connect();
 
   const now = new Date();
-
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  errorToFile(errorFile, `===== Started Sync =====`);
+  const oneDayAgo = new Date(now.getTime() - 100 * 60 * 60 * 1000);
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   console.log(oneDayAgo, oneHourAgo);
 
@@ -46,6 +46,12 @@ async function init() {
     )
   ).rows.map(({ id }) => id as string);
   console.log(messagesInReplica[messagesInReplica.length - 1]);
+  errorToFile(
+    errorFile,
+    `Last message in replica: ${
+      messagesInReplica[messagesInReplica.length - 1]
+    }`
+  );
 
   const messageInMain = (
     await dbClient.query(
@@ -54,6 +60,10 @@ async function init() {
     )
   ).rows.map(({ id }) => id as string);
   console.log(messageInMain[messageInMain.length - 1]);
+  errorToFile(
+    errorFile,
+    `Last message in main: ${messageInMain[messageInMain.length - 1]}`
+  );
 
   const messagesInReplicaSet = new Set(messagesInReplica);
   const messagesInMainSet = new Set(messageInMain);
@@ -67,11 +77,22 @@ async function init() {
 
   console.log(`Found ${missingMessagesInMain.length} missing messages in main`);
   console.log(missingMessagesInMain);
+  errorToFile(
+    errorFile,
+    `Found ${missingMessagesInMain.length} missing messages in main`
+  );
+  errorToFile(errorFile, missingMessagesInMain.toLocaleString());
   console.log(`Found ${missingInReplica.length} missing messages in replica`);
   console.log(missingInReplica);
+  errorToFile(
+    errorFile,
+    `Found ${missingInReplica.length} missing messages in replica`
+  );
+  errorToFile(errorFile, missingInReplica.toLocaleString());
 
   if (missingMessagesInMain.length > 0 && syncDb === "true") {
     console.log("Adding missing messages in main");
+    errorToFile(errorFile, "Adding missing messages in main");
     const messagesToAddInMain = await dbReplicaClient.query(
       `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
       [`{${missingMessagesInMain.join(",")}}`]
@@ -79,6 +100,7 @@ async function init() {
 
     for (const message of messagesToAddInMain.rows as Message[]) {
       console.log(message);
+      errorToFile(errorFile, `Adding ${JSON.stringify(message)}`);
       const userId = await getUserId(message.user_name, dbClient, errorFile);
       if (!userId) {
         errorToFile(errorFile, `Failed to get userId for ${message}`);
@@ -104,12 +126,14 @@ async function init() {
 
   if (missingInReplica.length > 0 && syncReplica === "true") {
     console.log("Adding missing messages in replica");
+    errorToFile(errorFile, "Adding missing messages in replica");
     const messagesToAddInReplica = await dbClient.query(
       `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
       [`{${missingInReplica.join(",")}}`]
     );
     for (const message of messagesToAddInReplica.rows as Message[]) {
       console.log(message);
+      errorToFile(errorFile, `Adding ${JSON.stringify(message)}`);
       const userId = await getUserId(
         message.user_name,
         dbReplicaClient,
@@ -140,7 +164,7 @@ async function init() {
       }
     }
   }
-
+  errorToFile(errorFile, `===== Finished Sync =====`);
   await dbClient.end();
   await dbReplicaClient.end();
 }

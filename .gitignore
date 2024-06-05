@@ -4,3 +4,4 @@
 .env*
 *.7z
 docker-compose.yml
+tmp
