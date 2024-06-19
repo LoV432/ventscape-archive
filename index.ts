@@ -32,26 +32,56 @@ async function init() {
   await dbClient.connect();
   await redisClient.connect();
 
-  await dbClient.query(`CREATE TABLE IF NOT EXISTS colors (
-    id SERIAL PRIMARY KEY,
-    color_name VARCHAR(7) NOT NULL UNIQUE
-  )`);
+  try {
+    await dbClient.query("BEGIN");
+    await dbClient.query(`CREATE TABLE IF NOT EXISTS colors (
+      id SERIAL PRIMARY KEY,
+      color_name VARCHAR(7) NOT NULL UNIQUE
+    )`);
 
-  await dbClient.query(`CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    user_name VARCHAR(50) NOT NULL UNIQUE
-  )`);
+    await dbClient.query(`CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      user_name VARCHAR(50) NOT NULL UNIQUE
+    )`);
 
-  await dbClient.query(`CREATE TABLE IF NOT EXISTS messages (
-    id SERIAL PRIMARY KEY,
-    uuid UUID NOT NULL UNIQUE,
-    message_text TEXT,
-    created_at TIMESTAMPTZ,
-    user_id INTEGER,
-    color_id INTEGER,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (color_id) REFERENCES colors(id)
-  )`);
+    await dbClient.query(`CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      uuid UUID NOT NULL UNIQUE,
+      message_text TEXT,
+      created_at TIMESTAMPTZ,
+      user_id INTEGER,
+      color_id INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (color_id) REFERENCES colors(id)
+    )`);
+
+    await dbClient.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_messages_message_text ON messages USING gin (message_text gin_trgm_ops)`
+    );
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`
+    );
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_messages_color_id ON messages(color_id)`
+    );
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_messages_user_id on messages(user_id)`
+    );
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_colors_id ON colors(id)`
+    );
+    await dbClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_users_id on users(id)`
+    );
+    await dbClient.query(`COMMIT`);
+  } catch (err) {
+    await dbClient.query("ROLLBACK");
+    await dbClient.end();
+    errorToFile(errorFile, `Failed to create tables: ${err}`);
+    console.error(err);
+    process.exit(1);
+  }
 
   // Launch the browser and open a new blank page
   const browser = await puppeteer.launch();
