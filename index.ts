@@ -97,6 +97,7 @@ async function init() {
   let purgeInProgress = false;
   let refetchTimeout: NodeJS.Timeout;
   const dbPurge = setInterval(purgeToDb, 5 * 60 * 1000);
+  let previousRows: number = 0;
 
   client.on("Network.webSocketFrameReceived", async ({ response }) => {
     if (response.payloadData.startsWith("42")) {
@@ -130,6 +131,8 @@ async function init() {
       errorFile,
       `Network.webSocketClosed - ${timestamp} - ${requestId}`
     );
+    refetchTimeout && clearTimeout(refetchTimeout);
+    refetchTimeout = setTimeout(handleRefetch, 20000);
   });
 
   client.on(
@@ -183,6 +186,22 @@ async function init() {
         }
       }
       console.info(`${new Date()} Purged to DB... (${rows.length} messages)`);
+      if (previousRows === 0 && rows.length === 0) {
+        try {
+          console.info(
+            `Something might be wrong, no messages in 10 minutes. Reloading page...`
+          );
+          errorToFile(
+            errorFile,
+            "Something might be wrong, no messages in 10 minutes. Reloading page..."
+          );
+          await page.reload();
+        } catch (err) {
+          errorToFile(errorFile, `Failed to reload page: ${err}`);
+          console.error("Failed to reload page. Error in logs");
+        }
+      }
+      previousRows = rows.length;
     } catch (err) {
       errorToFile(errorFile, `Failed to purge to db: ${err}`);
       console.error("Failed to purge to db. Error in logs");
@@ -206,10 +225,10 @@ async function init() {
       }
     } catch (err) {
       errorToFile(errorFile, `Failed to refetch: ${err}`);
-      console.error("Failed to refetch", err);
-      // This could create an infinite loop
-      refetchTimeout && clearTimeout(refetchTimeout);
-      refetchTimeout = setTimeout(handleRefetch, 20000);
+      console.error("Failed to refetch. Error in logs");
+      // // This could create an infinite loop
+      // refetchTimeout && clearTimeout(refetchTimeout);
+      // refetchTimeout = setTimeout(handleRefetch, 20000);
     } finally {
       await refetchPage.close();
     }
