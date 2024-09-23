@@ -107,7 +107,7 @@ async function init() {
         await redisClient.set(jsonData.id, JSON.stringify(jsonData));
       } catch (err) {
         errorToFile(errorFile, `Failed to store data in redis: ${data} ${err}`);
-        console.error("Failed to store data in redis", data, err);
+        console.error("Failed to store data in redis. Error in logs");
         return;
       }
     }
@@ -116,12 +116,7 @@ async function init() {
   client.on(
     "Network.webSocketFrameError",
     async ({ errorMessage, requestId, timestamp }) => {
-      console.error(
-        "Network.webSocketFrameError",
-        errorMessage,
-        requestId,
-        timestamp
-      );
+      console.error("Network.webSocketFrameError. Error in logs");
       errorToFile(
         errorFile,
         `Network.webSocketFrameError - ${timestamp} - ${requestId} - ${errorMessage}`
@@ -140,7 +135,7 @@ async function init() {
   client.on(
     "Network.webSocketCreated",
     async ({ requestId, url, initiator }) => {
-      console.error("Network.webSocketCreated", requestId, url, initiator);
+      console.error("Network.webSocketCreated. More info in logs");
       errorToFile(
         errorFile,
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
@@ -170,7 +165,7 @@ async function init() {
             errorFile,
             `Failed to get userId for ${JSON.stringify(message)}`
           );
-          console.error("Failed to get userId for", message);
+          console.error("Failed to get userId for. Error in logs");
           continue;
         }
         const color = await getColorId(message.color, dbClient, errorFile);
@@ -190,7 +185,7 @@ async function init() {
       console.info(`${new Date()} Purged to DB... (${rows.length} messages)`);
     } catch (err) {
       errorToFile(errorFile, `Failed to purge to db: ${err}`);
-      console.error(err);
+      console.error("Failed to purge to db. Error in logs");
     } finally {
       purgeInProgress = false;
     }

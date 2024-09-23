@@ -92,11 +92,11 @@ export async function addToDb(
       errorFile,
       `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId}`
     );
-    console.error("Failed to add to db", err);
     if (err.code === "23505") {
       // Duplicate entry
       return true;
     }
+    console.error(`Failed to add ${uuid} to db. Error in logs`);
     return false;
   }
 }
