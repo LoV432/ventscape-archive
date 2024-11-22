@@ -131,8 +131,8 @@ async function init() {
       errorFile,
       `Network.webSocketClosed - ${timestamp} - ${requestId}`
     );
-    refetchTimeout && clearTimeout(refetchTimeout);
-    refetchTimeout = setTimeout(handleRefetch, 20000);
+    // refetchTimeout && clearTimeout(refetchTimeout);
+    // refetchTimeout = setTimeout(handleRefetch, 20000);
   });
 
   client.on(
@@ -144,7 +144,7 @@ async function init() {
         `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
       );
       refetchTimeout && clearTimeout(refetchTimeout);
-      refetchTimeout = setTimeout(handleRefetch, 20000);
+      refetchTimeout = setTimeout(() => handleRefetch(true), 20000);
     }
   );
 
@@ -210,27 +210,40 @@ async function init() {
     }
   }
 
-  async function handleRefetch() {
-    const refetchPage = await browser.newPage();
-    try {
-      console.info(`${new Date()} Starting refetch...`);
-      errorToFile(errorFile, `Starting refetch...`);
-      const { messages } = await refetch(refetchPage);
-      console.info(
-        `${new Date()} Finished refetch, ${messages.length} messages`
-      );
-      errorToFile(errorFile, `Finished refetch - ${JSON.stringify(messages)}`);
-      for (const message of messages) {
-        await redisClient.set(message.id, JSON.stringify(message));
+  async function handleRefetch(retryOnError = false) {
+    let success = false;
+    let tries = 0;
+
+    while (!success && tries < 3 && retryOnError) {
+      if (tries > 0) {
+        console.info(`${new Date()} Retrying refetch, tries: ${tries}`);
+        errorToFile(errorFile, `Retrying refetch, tries: ${tries}`);
+        await new Promise((resolve) => setTimeout(resolve, 10000));
       }
-    } catch (err) {
-      errorToFile(errorFile, `Failed to refetch: ${err}`);
-      console.error("Failed to refetch. Error in logs");
-      // // This could create an infinite loop
-      // refetchTimeout && clearTimeout(refetchTimeout);
-      // refetchTimeout = setTimeout(handleRefetch, 20000);
-    } finally {
-      await refetchPage.close();
+
+      const refetchPage = await browser.newPage();
+      try {
+        console.info(`${new Date()} Starting refetch...`);
+        errorToFile(errorFile, `Starting refetch...`);
+        const { messages } = await refetch(refetchPage);
+        console.info(
+          `${new Date()} Finished refetch, ${messages.length} messages`
+        );
+        errorToFile(
+          errorFile,
+          `Finished refetch - ${JSON.stringify(messages)}`
+        );
+        for (const message of messages) {
+          await redisClient.set(message.id, JSON.stringify(message));
+        }
+        success = true;
+      } catch (err) {
+        errorToFile(errorFile, `Failed to refetch: ${err}`);
+        console.error("Failed to refetch. Error in logs");
+      } finally {
+        tries++;
+        await refetchPage.close();
+      }
     }
   }
 }
