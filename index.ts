@@ -105,6 +105,12 @@ async function init() {
       let jsonData: Message;
       try {
         jsonData = JSON.parse(data.slice(data.indexOf("{"), -1)) as Message;
+      } catch (err) {
+        errorToFile(errorFile, `Could not parse data sent by the server: ${data} ${err}`);
+        console.error("Could not parse data sent by the server. Error in logs");
+        return;
+      }
+      try {
         await redisClient.set(jsonData.id, JSON.stringify(jsonData));
       } catch (err) {
         errorToFile(errorFile, `Failed to store data in redis: ${data} ${err}`);
