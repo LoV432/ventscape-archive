@@ -88,7 +88,7 @@ async function init() {
     const page = await browser.newPage();
 
     // Navigate the page to a URL
-    await page.goto("https://ventscape.life/");
+    await page.goto("https://www.ventscape.life/");
     errorToFile(errorFile, "Script started");
     console.log(await page.title());
 
@@ -221,7 +221,11 @@ async function init() {
                         errorFile,
                         "Something might be wrong, no messages in 10 minutes. Reloading page..."
                     );
-                    await page.reload();
+                    // page.reload(); did not work.
+                    // This might have better chances of working... Will see i guess
+                    await page.goto(
+                        `https://www.ventscape.life/?reload=${Math.random()}`
+                    );
                 } catch (err) {
                     errorToFile(errorFile, `Failed to reload page: ${err}`);
                     console.error("Failed to reload page. Error in logs");
