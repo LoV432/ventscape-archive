@@ -1,9 +1,9 @@
-import pg from "pg";
-import { createClient } from "redis";
-import puppeteer from "puppeteer";
-import { config } from "dotenv";
-import { refetch } from "./refetch";
-import { errorToFile, getUserId, addToDb, getColorId } from "./utils";
+import pg from 'pg';
+import { createClient } from 'redis';
+import puppeteer from 'puppeteer';
+import { config } from 'dotenv';
+import { refetch } from './refetch';
+import { errorToFile, getUserId, addToDb, getColorId } from './utils';
 config();
 
 type Message = {
@@ -15,7 +15,7 @@ type Message = {
 };
 
 async function init() {
-    const errorFile = "logs/pg-error.log";
+    const errorFile = 'logs/pg-error.log';
     const redisClient = createClient({
         password: process.env.REDIS_PASSWORD,
         url: process.env.REDIS_URL,
@@ -27,13 +27,13 @@ async function init() {
         host: process.env.PG_HOST,
         database: process.env.PG_DATABASE,
         password: process.env.PG_PASSWORD,
-        port: parseInt(process.env.PG_PORT || "5432"),
+        port: parseInt(process.env.PG_PORT || '5432'),
     });
     await dbClient.connect();
     await redisClient.connect();
 
     try {
-        await dbClient.query("BEGIN");
+        await dbClient.query('BEGIN');
         await dbClient.query(`CREATE TABLE IF NOT EXISTS colors (
       id SERIAL PRIMARY KEY,
       color_name VARCHAR(7) NOT NULL UNIQUE
@@ -76,7 +76,7 @@ async function init() {
         );
         await dbClient.query(`COMMIT`);
     } catch (err) {
-        await dbClient.query("ROLLBACK");
+        await dbClient.query('ROLLBACK');
         await dbClient.end();
         errorToFile(errorFile, `Failed to create tables: ${err}`);
         console.error(err);
@@ -88,24 +88,24 @@ async function init() {
     const page = await browser.newPage();
 
     // Navigate the page to a URL
-    await page.goto("https://www.ventscape.life/");
-    errorToFile(errorFile, "Script started");
+    await page.goto('https://www.ventscape.life/');
+    errorToFile(errorFile, 'Script started');
     console.log(await page.title());
 
     const client = await page.createCDPSession();
-    await client.send("Network.enable");
+    await client.send('Network.enable');
     let purgeInProgress = false;
     let refetchTimeout: NodeJS.Timeout;
     const dbPurge = setInterval(purgeToDb, 5 * 60 * 1000);
     let previousRows: number = 0;
 
-    client.on("Network.webSocketFrameReceived", async ({ response }) => {
-        if (response.payloadData.startsWith("42")) {
+    client.on('Network.webSocketFrameReceived', async ({ response }) => {
+        if (response.payloadData.startsWith('42')) {
             const data = response.payloadData;
             let jsonData: Message;
             try {
                 jsonData = JSON.parse(
-                    data.slice(data.indexOf("{"), -1)
+                    data.slice(data.indexOf('{'), -1)
                 ) as Message;
             } catch (err) {
                 errorToFile(
@@ -113,7 +113,7 @@ async function init() {
                     `Could not parse data sent by the server: ${data} ${err}`
                 );
                 console.error(
-                    "Could not parse data sent by the server. Error in logs"
+                    'Could not parse data sent by the server. Error in logs'
                 );
                 return;
             }
@@ -124,16 +124,16 @@ async function init() {
                     errorFile,
                     `Failed to store data in redis: ${data} ${err}`
                 );
-                console.error("Failed to store data in redis. Error in logs");
+                console.error('Failed to store data in redis. Error in logs');
                 return;
             }
         }
     });
 
     client.on(
-        "Network.webSocketFrameError",
+        'Network.webSocketFrameError',
         async ({ errorMessage, requestId, timestamp }) => {
-            console.error("Network.webSocketFrameError. Error in logs");
+            console.error('Network.webSocketFrameError. Error in logs');
             errorToFile(
                 errorFile,
                 `Network.webSocketFrameError - ${timestamp} - ${requestId} - ${errorMessage}`
@@ -141,8 +141,8 @@ async function init() {
         }
     );
 
-    client.on("Network.webSocketClosed", async ({ requestId, timestamp }) => {
-        console.error("Network.webSocketClosed", requestId, timestamp);
+    client.on('Network.webSocketClosed', async ({ requestId, timestamp }) => {
+        console.error('Network.webSocketClosed', requestId, timestamp);
         errorToFile(
             errorFile,
             `Network.webSocketClosed - ${timestamp} - ${requestId}`
@@ -152,9 +152,9 @@ async function init() {
     });
 
     client.on(
-        "Network.webSocketCreated",
+        'Network.webSocketCreated',
         async ({ requestId, url, initiator }) => {
-            console.error("Network.webSocketCreated. More info in logs");
+            console.error('Network.webSocketCreated. More info in logs');
             errorToFile(
                 errorFile,
                 `Network.webSocketCreated - ${url} - ${initiator} - ${requestId}`
@@ -166,14 +166,14 @@ async function init() {
 
     async function purgeToDb() {
         if (purgeInProgress) {
-            errorToFile(errorFile, "Purge already in progress, skipping");
-            console.info("Purge already in progress, skipping");
+            errorToFile(errorFile, 'Purge already in progress, skipping');
+            console.info('Purge already in progress, skipping');
             return;
         }
         purgeInProgress = true;
         console.info(`${new Date()} Starting purge to DB...`);
         try {
-            const rows = await redisClient.keys("*");
+            const rows = await redisClient.keys('*');
             for (const row of rows) {
                 const message = JSON.parse(
                     (await redisClient.get(row)) as string
@@ -188,7 +188,7 @@ async function init() {
                         errorFile,
                         `Failed to get userId for ${JSON.stringify(message)}`
                     );
-                    console.error("Failed to get userId for. Error in logs");
+                    console.error('Failed to get userId for. Error in logs');
                     continue;
                 }
                 const color = await getColorId(
@@ -219,7 +219,7 @@ async function init() {
                     );
                     errorToFile(
                         errorFile,
-                        "Something might be wrong, no messages in 10 minutes. Reloading page..."
+                        'Something might be wrong, no messages in 10 minutes. Reloading page...'
                     );
                     // page.reload(); did not work.
                     // This might have better chances of working... Will see i guess
@@ -228,13 +228,13 @@ async function init() {
                     );
                 } catch (err) {
                     errorToFile(errorFile, `Failed to reload page: ${err}`);
-                    console.error("Failed to reload page. Error in logs");
+                    console.error('Failed to reload page. Error in logs');
                 }
             }
             previousRows = rows.length;
         } catch (err) {
             errorToFile(errorFile, `Failed to purge to db: ${err}`);
-            console.error("Failed to purge to db. Error in logs");
+            console.error('Failed to purge to db. Error in logs');
         } finally {
             purgeInProgress = false;
         }
@@ -271,7 +271,7 @@ async function init() {
                 success = true;
             } catch (err) {
                 errorToFile(errorFile, `Failed to refetch: ${err}`);
-                console.error("Failed to refetch. Error in logs");
+                console.error('Failed to refetch. Error in logs');
             } finally {
                 tries++;
                 await refetchPage.close();
