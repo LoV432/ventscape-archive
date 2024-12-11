@@ -244,10 +244,11 @@ async function init() {
         let success = false;
         let tries = 0;
 
-        while (!success && tries < 3 && retryOnError) {
+        while (!success && tries < 10 && retryOnError) {
             if (tries > 0) {
                 console.info(`${new Date()} Retrying refetch, tries: ${tries}`);
                 errorToFile(errorFile, `Retrying refetch, tries: ${tries}`);
+                // TODO: I might need to fine tune this delay for better results.
                 await new Promise((resolve) => setTimeout(resolve, 10000));
             }
 
@@ -270,12 +271,19 @@ async function init() {
                 }
                 success = true;
             } catch (err) {
-                errorToFile(errorFile, `Failed to refetch: ${err}`);
+                errorToFile(
+                    errorFile,
+                    `Failed to refetch: ${JSON.stringify(err)}`
+                );
                 console.error('Failed to refetch. Error in logs');
             } finally {
                 tries++;
                 await refetchPage.close();
             }
+        }
+        if (!success) {
+            console.error('All attempts to refetch failed');
+            errorToFile(errorFile, 'All attempts to refetch failed');
         }
     }
 }
