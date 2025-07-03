@@ -51,6 +51,7 @@ async function init() {
       created_at TIMESTAMPTZ,
       user_id INTEGER,
       color_id INTEGER,
+      is_deleted BOOLEAN DEFAULT FALSE,
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (color_id) REFERENCES colors(id)
     )`);

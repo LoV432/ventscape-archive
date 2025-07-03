@@ -35,7 +35,7 @@ async function init() {
 
   const now = new Date();
   errorToFile(errorFile, `===== Started Sync =====`);
-  const oneDayAgo = new Date(now.getTime() - 100 * 60 * 60 * 1000);
+  const oneDayAgo = new Date(now.getTime() - 900 * 60 * 60 * 1000);
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   console.log(oneDayAgo, oneHourAgo);
 
