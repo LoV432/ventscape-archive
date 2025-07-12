@@ -12,6 +12,7 @@ type Message = {
     messageText: string;
     createdAt: number;
     color: string;
+    nickname: string | null;
 };
 
 async function init() {
@@ -52,6 +53,7 @@ async function init() {
       user_id INTEGER,
       color_id INTEGER,
       is_deleted BOOLEAN DEFAULT FALSE,
+      nickname VARCHAR(50),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (color_id) REFERENCES colors(id)
     )`);
@@ -203,6 +205,7 @@ async function init() {
                     userId,
                     color,
                     message.id,
+                    message.nickname,
                     dbClient,
                     errorFile
                 );

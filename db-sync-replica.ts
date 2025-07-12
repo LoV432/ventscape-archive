@@ -10,6 +10,7 @@ type Message = {
   message_text: string;
   created_at: Date;
   color_name: string;
+  nickname: string | null;
 };
 
 const { Client } = pg;
@@ -114,6 +115,7 @@ async function init() {
         userId,
         color,
         message.id,
+        message.nickname,
         dbClient,
         errorFile
       );
@@ -155,6 +157,7 @@ async function init() {
         userId,
         color,
         message.id,
+        message.nickname,
         dbReplicaClient,
         errorFile
       );

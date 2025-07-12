@@ -72,18 +72,20 @@ export async function addToDb(
   userId: number,
   colorId: number | null,
   uuid: string,
+  nickname: string | null,
   dbClient: Client,
   errorFile: string
 ) {
   try {
     await dbClient.query(
-      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid) VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid, nickname) VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         messageText,
         `${new Date(createdAt).toISOString()}`,
         userId,
         colorId,
         uuid,
+        nickname
       ]
     );
     return true;

@@ -52,6 +52,7 @@ export async function refetch(page: Page) {
       color: string;
       userId: string;
       createdAt: string;
+      nickname: string | null;
     }[];
   };
 }
