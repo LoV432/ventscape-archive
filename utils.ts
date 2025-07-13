@@ -66,6 +66,35 @@ export async function getColorId(
   }
 }
 
+export async function getFontId(
+  messageFont: string | null,
+  dbClient: Client,
+  errorFile: string
+) {
+  if (!messageFont) return null;
+  let fontId: number | undefined;
+  try {
+    fontId = (
+      await dbClient.query(`SELECT id FROM fonts WHERE font_name = $1`, [
+        messageFont,
+      ])
+    ).rows[0]?.id as number | undefined;
+    if (!fontId) {
+      fontId = (
+        await dbClient.query(
+          `INSERT INTO fonts(font_name) VALUES ($1) RETURNING id`,
+          [messageFont]
+        )
+      ).rows[0].id as number;
+    }
+    return fontId;
+  } catch (err) {
+    errorToFile(errorFile, `Failed to get fontId: ${err}`);
+    console.error("Failed to get fontId", err);
+    return null;
+  }
+}
+
 export async function addToDb(
   messageText: string,
   createdAt: number | Date,
@@ -73,26 +102,28 @@ export async function addToDb(
   colorId: number | null,
   uuid: string,
   nickname: string | null,
+  fontId: number | null,
   dbClient: Client,
   errorFile: string
 ) {
   try {
     await dbClient.query(
-      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid, nickname) VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid, nickname, font_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         messageText,
         `${new Date(createdAt).toISOString()}`,
         userId,
         colorId,
         uuid,
-        nickname
+        nickname,
+        fontId
       ]
     );
     return true;
   } catch (err) {
     errorToFile(
       errorFile,
-      `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId}`
+      `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId} - ${uuid} - ${nickname} - ${fontId}`
     );
     if (err.code === "23505") {
       // Duplicate entry

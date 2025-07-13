@@ -53,6 +53,7 @@ export async function refetch(page: Page) {
       userId: string;
       createdAt: string;
       nickname: string | null;
+      font: string | null;
     }[];
   };
 }

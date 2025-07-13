@@ -3,7 +3,7 @@ import { createClient } from 'redis';
 import puppeteer from 'puppeteer';
 import { config } from 'dotenv';
 import { refetch } from './refetch';
-import { errorToFile, getUserId, addToDb, getColorId } from './utils';
+import { errorToFile, getUserId, addToDb, getColorId, getFontId } from './utils';
 config();
 
 type Message = {
@@ -13,6 +13,7 @@ type Message = {
     createdAt: number;
     color: string;
     nickname: string | null;
+    font: string | null;
 };
 
 async function init() {
@@ -39,6 +40,10 @@ async function init() {
       id SERIAL PRIMARY KEY,
       color_name VARCHAR(7) NOT NULL UNIQUE
     )`);
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS fonts (
+      id SERIAL PRIMARY KEY,
+      font_name VARCHAR(20) NOT NULL UNIQUE
+    )`);
 
         await dbClient.query(`CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -52,10 +57,12 @@ async function init() {
       created_at TIMESTAMPTZ,
       user_id INTEGER,
       color_id INTEGER,
+      font_id INTEGER,
       is_deleted BOOLEAN DEFAULT FALSE,
       nickname VARCHAR(50),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (color_id) REFERENCES colors(id)
+      FOREIGN KEY (font_id) REFERENCES fonts(id)
     )`);
 
         await dbClient.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
@@ -199,6 +206,11 @@ async function init() {
                     dbClient,
                     errorFile
                 );
+                const font = await getFontId(
+                    message.font,
+                    dbClient,
+                    errorFile
+                );
                 const addToDbResult = await addToDb(
                     message.messageText,
                     message.createdAt,
@@ -206,6 +218,7 @@ async function init() {
                     color,
                     message.id,
                     message.nickname,
+                    font,
                     dbClient,
                     errorFile
                 );

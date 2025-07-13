@@ -1,6 +1,6 @@
 import pg from "pg";
 import { config } from "dotenv";
-import { errorToFile, getUserId, addToDb, getColorId } from "./utils";
+import { errorToFile, getUserId, addToDb, getColorId, getFontId } from "./utils";
 const [syncDb, syncReplica] = process.argv.slice(2);
 config();
 
@@ -11,6 +11,7 @@ type Message = {
   created_at: Date;
   color_name: string;
   nickname: string | null;
+  font_name: string | null;
 };
 
 const { Client } = pg;
@@ -95,7 +96,7 @@ async function init() {
     console.log("Adding missing messages in main");
     errorToFile(errorFile, "Adding missing messages in main");
     const messagesToAddInMain = await dbReplicaClient.query(
-      `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id LEFT JOIN fonts f ON messages.font_id = f.id WHERE uuid = ANY($1)`,
       [`{${missingMessagesInMain.join(",")}}`]
     );
 
@@ -109,6 +110,7 @@ async function init() {
         continue;
       }
       const color = await getColorId(message.color_name, dbClient, errorFile);
+      const font = await getFontId(message.font_name, dbClient, errorFile);
       const addToDbResult = await addToDb(
         message.message_text,
         message.created_at,
@@ -116,6 +118,7 @@ async function init() {
         color,
         message.id,
         message.nickname,
+        font,
         dbClient,
         errorFile
       );
@@ -130,7 +133,7 @@ async function init() {
     console.log("Adding missing messages in replica");
     errorToFile(errorFile, "Adding missing messages in replica");
     const messagesToAddInReplica = await dbClient.query(
-      `SELECT uuid as id, message_text, u.user_name, c.color_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id WHERE uuid = ANY($1)`,
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id LEFT JOIN fonts f ON messages.font_id = f.id WHERE uuid = ANY($1)`,
       [`{${missingInReplica.join(",")}}`]
     );
     for (const message of messagesToAddInReplica.rows as Message[]) {
@@ -151,6 +154,11 @@ async function init() {
         dbReplicaClient,
         errorFile
       );
+      const font = await getFontId(
+        message.font_name,
+        dbReplicaClient,
+        errorFile
+      );
       const addToDbResult = await addToDb(
         message.message_text,
         message.created_at,
@@ -158,6 +166,7 @@ async function init() {
         color,
         message.id,
         message.nickname,
+        font,
         dbReplicaClient,
         errorFile
       );
