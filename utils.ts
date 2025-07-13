@@ -95,27 +95,56 @@ export async function getFontId(
   }
 }
 
+export async function getNicknameId(
+  messageNickname: string | null,
+  dbClient: Client,
+  errorFile: string
+) {
+  if (!messageNickname) return null;
+  let nicknameId: number | undefined;
+  try {
+    nicknameId = (
+      await dbClient.query(`SELECT id FROM nicknames WHERE nickname_name = $1`, [
+        messageNickname,
+      ])
+    ).rows[0]?.id as number | undefined;
+    if (!nicknameId) {
+      nicknameId = (
+        await dbClient.query(
+          `INSERT INTO nicknames(nickname_name) VALUES ($1) RETURNING id`,
+          [messageNickname]
+        )
+      ).rows[0].id as number;
+    }
+    return nicknameId;
+  } catch (err) {
+    errorToFile(errorFile, `Failed to get nicknameId: ${err}`);
+    console.error("Failed to get nicknameId", err);
+    return null;
+  }
+}
+
 export async function addToDb(
   messageText: string,
   createdAt: number | Date,
   userId: number,
   colorId: number | null,
   uuid: string,
-  nickname: string | null,
+  nicknameId: number | null,
   fontId: number | null,
   dbClient: Client,
   errorFile: string
 ) {
   try {
     await dbClient.query(
-      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid, nickname, font_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO messages(message_text, created_at, user_id, color_id, uuid, nickname_id, font_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         messageText,
         `${new Date(createdAt).toISOString()}`,
         userId,
         colorId,
         uuid,
-        nickname,
+        nicknameId,
         fontId
       ]
     );
@@ -123,7 +152,7 @@ export async function addToDb(
   } catch (err) {
     errorToFile(
       errorFile,
-      `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId} - ${uuid} - ${nickname} - ${fontId}`
+      `Failed to add to db: ${err} - ${messageText} - ${createdAt} - ${userId} - ${colorId} - ${uuid} - ${nicknameId} - ${fontId}`
     );
     if (err.code === "23505") {
       // Duplicate entry

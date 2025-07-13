@@ -3,7 +3,7 @@ import { createClient } from 'redis';
 import puppeteer from 'puppeteer';
 import { config } from 'dotenv';
 import { refetch } from './refetch';
-import { errorToFile, getUserId, addToDb, getColorId, getFontId } from './utils';
+import { errorToFile, getUserId, addToDb, getColorId, getFontId, getNicknameId } from './utils';
 config();
 
 type Message = {
@@ -36,13 +36,20 @@ async function init() {
 
     try {
         await dbClient.query('BEGIN');
+        
         await dbClient.query(`CREATE TABLE IF NOT EXISTS colors (
       id SERIAL PRIMARY KEY,
       color_name VARCHAR(7) NOT NULL UNIQUE
     )`);
+        
         await dbClient.query(`CREATE TABLE IF NOT EXISTS fonts (
       id SERIAL PRIMARY KEY,
       font_name VARCHAR(20) NOT NULL UNIQUE
+    )`);
+    
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS nicknames (
+      id SERIAL PRIMARY KEY,
+      nickname_name VARCHAR(50) NOT NULL UNIQUE
     )`);
 
         await dbClient.query(`CREATE TABLE IF NOT EXISTS users (
@@ -58,11 +65,12 @@ async function init() {
       user_id INTEGER,
       color_id INTEGER,
       font_id INTEGER,
+      nickname_id INTEGER,
       is_deleted BOOLEAN DEFAULT FALSE,
-      nickname VARCHAR(50),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (color_id) REFERENCES colors(id),
-      FOREIGN KEY (font_id) REFERENCES fonts(id)
+      FOREIGN KEY (font_id) REFERENCES fonts(id),
+      FOREIGN KEY (nickname_id) REFERENCES nicknames(id)
     )`);
 
         await dbClient.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
@@ -211,13 +219,18 @@ async function init() {
                     dbClient,
                     errorFile
                 );
+                const nickname = await getNicknameId(
+                    message.nickname,
+                    dbClient,
+                    errorFile
+                );
                 const addToDbResult = await addToDb(
                     message.messageText,
                     message.createdAt,
                     userId,
                     color,
                     message.id,
-                    message.nickname,
+                    nickname,
                     font,
                     dbClient,
                     errorFile
