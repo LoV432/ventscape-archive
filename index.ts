@@ -61,7 +61,7 @@ async function init() {
       is_deleted BOOLEAN DEFAULT FALSE,
       nickname VARCHAR(50),
       FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (color_id) REFERENCES colors(id)
+      FOREIGN KEY (color_id) REFERENCES colors(id),
       FOREIGN KEY (font_id) REFERENCES fonts(id)
     )`);
 
