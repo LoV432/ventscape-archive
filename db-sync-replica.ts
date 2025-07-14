@@ -10,7 +10,7 @@ type Message = {
   message_text: string;
   created_at: Date;
   color_name: string;
-  nickname: string | null;
+  nickname_name: string | null;
   font_name: string | null;
 };
 
@@ -116,7 +116,7 @@ async function init() {
       }
       const color = await getColorId(message.color_name, dbClient, errorFile);
       const font = await getFontId(message.font_name, dbClient, errorFile);
-      const nickname = await getNicknameId(message.nickname, dbClient, errorFile);
+      const nickname = await getNicknameId(message.nickname_name, dbClient, errorFile);
       const addToDbResult = await addToDb(
         message.message_text,
         message.created_at,
@@ -171,7 +171,7 @@ async function init() {
         errorFile
       );
       const nickname = await getNicknameId(
-        message.nickname,
+        message.nickname_name,
         dbReplicaClient,
         errorFile
       );
