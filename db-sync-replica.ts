@@ -96,7 +96,12 @@ async function init() {
     console.log("Adding missing messages in main");
     errorToFile(errorFile, "Adding missing messages in main");
     const messagesToAddInMain = await dbReplicaClient.query(
-      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id LEFT JOIN fonts f ON messages.font_id = f.id LEFT JOIN nicknames n ON messages.nickname_id = n.id WHERE uuid = ANY($1)`,
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, n.nickname_name, created_at FROM messages
+        JOIN users u ON messages.user_id = u.id
+        LEFT JOIN colors c ON messages.color_id = c.id 
+        LEFT JOIN fonts f ON messages.font_id = f.id 
+        LEFT JOIN nicknames n ON messages.nickname_id = n.id 
+        WHERE uuid = ANY($1)`,
       [`{${missingMessagesInMain.join(",")}}`]
     );
 
@@ -134,7 +139,12 @@ async function init() {
     console.log("Adding missing messages in replica");
     errorToFile(errorFile, "Adding missing messages in replica");
     const messagesToAddInReplica = await dbClient.query(
-      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, created_at FROM messages JOIN users u ON messages.user_id = u.id LEFT JOIN colors c ON messages.color_id = c.id LEFT JOIN fonts f ON messages.font_id = f.id LEFT JOIN nicknames n ON messages.nickname_id = n.id WHERE uuid = ANY($1)`,
+      `SELECT uuid as id, message_text, u.user_name, c.color_name, f.font_name, n.nickname_name, created_at FROM messages
+        JOIN users u ON messages.user_id = u.id
+        LEFT JOIN colors c ON messages.color_id = c.id 
+        LEFT JOIN fonts f ON messages.font_id = f.id 
+        LEFT JOIN nicknames n ON messages.nickname_id = n.id 
+        WHERE uuid = ANY($1)`,
       [`{${missingInReplica.join(",")}}`]
     );
     for (const message of messagesToAddInReplica.rows as Message[]) {
