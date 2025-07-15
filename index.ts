@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 import { config } from 'dotenv';
 import { refetch } from './refetch';
 import { errorToFile, getUserId, addToDb, getColorId, getFontId, getNicknameId } from './utils';
+import UserAgent from 'user-agents';
 config();
 
 type Message = {
@@ -104,6 +105,8 @@ async function init() {
     // Launch the browser and open a new blank page
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
+    const userAgent = new UserAgent();
+    page.setUserAgent(userAgent.toString());
 
     // Navigate the page to a URL
     await page.goto('https://www.ventscape.life/');
@@ -251,11 +254,11 @@ async function init() {
                         errorFile,
                         'Something might be wrong, no messages in 10 minutes. Reloading page...'
                     );
-                    // page.reload(); did not work.
-                    // This might have better chances of working... Will see i guess
-                    await page.goto(
-                        `https://www.ventscape.life/?reload=${Math.random()}`
-                    );
+                    page.reload();
+                    // // This might have better chances of working... Will see i guess
+                    // await page.goto(
+                    //     `https://www.ventscape.life/?reload=${Math.random()}`
+                    // );
                 } catch (err) {
                     errorToFile(errorFile, `Failed to reload page: ${err}`);
                     console.error('Failed to reload page. Error in logs');
@@ -283,6 +286,8 @@ async function init() {
             }
 
             const refetchPage = await browser.newPage();
+            const userAgent = new UserAgent();
+            refetchPage.setUserAgent(userAgent.toString());
             try {
                 console.info(`${new Date()} Starting refetch...`);
                 errorToFile(errorFile, `Starting refetch...`);
